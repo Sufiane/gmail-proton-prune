@@ -1,0 +1,22 @@
+{
+  "name": "gmail-proton-prune",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dry-run": "node --env-file=.env src/cli.ts",
+    "apply": "node --env-file=.env src/cli.ts --apply",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "imapflow": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}
