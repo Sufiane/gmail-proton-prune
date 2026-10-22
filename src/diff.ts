@@ -16,9 +16,27 @@ export function normalizeMessageId(raw: string | null | undefined): string | nul
     return null;
   }
 
-  const trimmed = raw.trim().replace(/^<|>$/g, '').trim().toLowerCase();
+  const normalized = raw.replace(/\s+/g, '').replace(/^<|>$/g, '').toLowerCase();
 
-  return trimmed === '' ? null : trimmed;
+  return normalized === '' ? null : normalized;
+}
+
+export type FolderInfo = {
+  path: string;
+  specialUse?: string | undefined;
+  flags: ReadonlySet<string>;
+};
+
+// All Mail is skipped: on Bridge it may also hold trashed mail, which would mask deletions.
+export function selectKeptFolders(folders: readonly FolderInfo[]): string[] {
+  return folders
+    .filter((folder) => !folder.flags.has('\\Noselect') && !folder.flags.has('\\NonExistent'))
+    .filter((folder) => folder.specialUse !== '\\Trash' && folder.specialUse !== '\\All')
+    .map((folder) => folder.path);
+}
+
+export function isConfirmed(answer: string): boolean {
+  return ['y', 'yes'].includes(answer.trim().toLowerCase());
 }
 
 export function findDeletedInProton(

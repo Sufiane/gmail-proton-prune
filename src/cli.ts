@@ -1,7 +1,8 @@
+import { createInterface } from 'node:readline/promises';
 import type { ImapFlow } from 'imapflow';
 import { readConfig } from './config.ts';
-import { exceedsRatio, findDeletedInProton } from './diff.ts';
-import { collectMessageIds, connect, fetchSummaries, findMailboxPath, moveToTrash } from './mailbox.ts';
+import { exceedsRatio, findDeletedInProton, isConfirmed, selectKeptFolders } from './diff.ts';
+import { collectMessageIds, connect, fetchSummaries, findMailboxPath, listFolders, moveToTrash } from './mailbox.ts';
 import { printMails, writeCsv } from './report.ts';
 
 function buildGmailQuery(minAgeDays: number): string {
@@ -15,22 +16,28 @@ function buildGmailQuery(minAgeDays: number): string {
 }
 
 async function loadProtonIds(proton: ImapFlow): Promise<Set<string>> {
-  const allMailPath = await findMailboxPath(proton, '\\All', 'All Mail');
-  const trashPath = await findMailboxPath(proton, '\\Trash', 'Trash');
+  const keptFolders = selectKeptFolders(await listFolders(proton));
 
-  console.log(`Proton: reading "${allMailPath}"…`);
-  const ids = await collectMessageIds(proton, allMailPath);
+  console.log(`Proton: reading ${keptFolders.length} folders (all except Trash and All Mail)…`);
+  const ids = await collectMessageIds(proton, keptFolders);
 
-  console.log(`Proton: reading "${trashPath}"…`);
-  const trashedIds = await collectMessageIds(proton, trashPath);
-
-  for (const id of trashedIds) {
-    ids.delete(id);
-  }
-
-  console.log(`Proton: ${ids.size} kept mails (${trashedIds.size} in trash, treated as deleted)`);
+  console.log(`Proton: ${ids.size} distinct kept Message-IDs`);
 
   return ids;
+}
+
+async function askConfirmation(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    throw new Error('confirmation_requires_tty');
+  }
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+
+  try {
+    return isConfirmed(await prompt.question(question));
+  } finally {
+    prompt.close();
+  }
 }
 
 async function run(): Promise<void> {
@@ -54,8 +61,8 @@ async function run(): Promise<void> {
     const query = buildGmailQuery(config.minAgeDays);
 
     console.log(`Gmail: reading "${gmailAllMail}" (${query})…`);
-    const gmailMails = await fetchSummaries(gmail, gmailAllMail, query);
-    const { flagged, skippedWithoutId } = findDeletedInProton(gmailMails, protonIds);
+    const scanned = await fetchSummaries(gmail, gmailAllMail, query);
+    const { flagged, skippedWithoutId } = findDeletedInProton(scanned.mails, protonIds);
 
     console.log(`\nFlagged (in Gmail, deleted in Proton): ${flagged.length}`);
     printMails(flagged);
@@ -65,16 +72,16 @@ async function run(): Promise<void> {
       printMails(skippedWithoutId);
     }
 
-    console.log(`\nScanned ${gmailMails.length} Gmail mails, flagged ${flagged.length}.`);
+    console.log(`\nScanned ${scanned.mails.length} Gmail mails, flagged ${flagged.length}.`);
 
     if (flagged.length > 0) {
       console.log(`Full list: ${await writeCsv(flagged)}`);
     }
 
-    const tooMany = exceedsRatio(flagged.length, gmailMails.length, config.maxFlaggedRatio);
+    const tooMany = exceedsRatio(flagged.length, scanned.mails.length, config.maxFlaggedRatio);
 
     if (tooMany) {
-      console.warn(`\n⚠ Flagged share exceeds MAX_FLAGGED_RATIO=${config.maxFlaggedRatio}. Matching may be broken.`);
+      console.warn(`\nWARNING: flagged share exceeds MAX_FLAGGED_RATIO=${config.maxFlaggedRatio}. Matching may be broken.`);
     }
 
     if (!apply) {
@@ -91,8 +98,20 @@ async function run(): Promise<void> {
       return;
     }
 
-    console.log(`\nMoving ${flagged.length} mails to "${gmailTrash}"…`);
-    const moved = await moveToTrash(gmail, gmailAllMail, gmailTrash, flagged.map((mail) => mail.uid));
+    const confirmed = await askConfirmation(`\nMove ${flagged.length} mails to "${gmailTrash}"? [y/N] `);
+
+    if (!confirmed) {
+      console.log('Aborted, nothing changed.');
+
+      return;
+    }
+
+    const moved = await moveToTrash(
+      gmail,
+      { path: gmailAllMail, uidValidity: scanned.uidValidity },
+      gmailTrash,
+      flagged.map((mail) => mail.uid),
+    );
 
     console.log(`Done: ${moved} moved to Gmail Trash (recoverable for 30 days).`);
   } finally {

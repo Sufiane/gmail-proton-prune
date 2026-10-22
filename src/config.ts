@@ -59,7 +59,7 @@ export function readConfig(): Config {
       password: requireEnv('PROTON_BRIDGE_PASSWORD'),
       allowSelfSignedCert: true,
     },
-    maxFlaggedRatio: readNumberEnv('MAX_FLAGGED_RATIO', 0.3),
+    maxFlaggedRatio: readNumberEnv('MAX_FLAGGED_RATIO', 0.05),
     minAgeDays: readNumberEnv('MIN_AGE_DAYS', 1),
   };
 }

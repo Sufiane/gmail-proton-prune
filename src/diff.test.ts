@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { exceedsRatio, findDeletedInProton, normalizeMessageId, type MailSummary } from './diff.ts';
+import {
+  exceedsRatio,
+  findDeletedInProton,
+  isConfirmed,
+  normalizeMessageId,
+  selectKeptFolders,
+  type FolderInfo,
+  type MailSummary,
+} from './diff.ts';
 
 function mail(uid: number, messageId: string | null): MailSummary {
   return { uid, messageId, date: null, from: 'a@b.c', subject: `mail ${uid}` };
@@ -13,10 +21,60 @@ describe('normalizeMessageId', () => {
     });
   });
 
-  describe('when the id is missing or empty', () => {
+  describe('when the id contains folded whitespace', () => {
+    it('removes it', () => {
+      assert.equal(normalizeMessageId('<abc\r\n def@x.com>'), 'abcdef@x.com');
+    });
+  });
+
+  describe('when the id is missing', () => {
     it('returns null', () => {
       assert.equal(normalizeMessageId(undefined), null);
+    });
+  });
+
+  describe('when the id is empty brackets', () => {
+    it('returns null', () => {
       assert.equal(normalizeMessageId('<>'), null);
+    });
+  });
+});
+
+function folder(path: string, specialUse?: string, flags: string[] = []): FolderInfo {
+  return { path, specialUse, flags: new Set(flags) };
+}
+
+describe('selectKeptFolders', () => {
+  describe('when Proton lists system, custom and container folders', () => {
+    const folders = [
+      folder('INBOX', '\\Inbox'),
+      folder('Spam', '\\Junk'),
+      folder('Trash', '\\Trash'),
+      folder('All Mail', '\\All'),
+      folder('Folders', undefined, ['\\Noselect']),
+      folder('Folders/Bills'),
+      folder('Labels/Work'),
+    ];
+
+    it('keeps Inbox, Spam and custom folders', () => {
+      assert.deepEqual(selectKeptFolders(folders), ['INBOX', 'Spam', 'Folders/Bills', 'Labels/Work']);
+    });
+  });
+});
+
+describe('isConfirmed', () => {
+  describe('when the answer is y or yes in any case', () => {
+    it('returns true', () => {
+      assert.equal(isConfirmed(' Y '), true);
+      assert.equal(isConfirmed('yes'), true);
+    });
+  });
+
+  describe('when the answer is anything else', () => {
+    it('returns false', () => {
+      assert.equal(isConfirmed(''), false);
+      assert.equal(isConfirmed('n'), false);
+      assert.equal(isConfirmed('yep'), false);
     });
   });
 });
