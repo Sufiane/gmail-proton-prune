@@ -27,11 +27,24 @@ export type FolderInfo = {
   flags: ReadonlySet<string>;
 };
 
-// All Mail is skipped: on Bridge it may also hold trashed mail, which would mask deletions.
+const SPECIAL_USE_FLAGS = ['\\Inbox', '\\Sent', '\\Drafts', '\\Archive', '\\Junk', '\\Trash', '\\All', '\\Flagged'];
+const KEPT_ROLES = ['\\Inbox', '\\Sent', '\\Drafts', '\\Archive', '\\Junk'];
+
+// Bridge sets \All in LIST flags without advertising SPECIAL-USE, so imapflow leaves specialUse empty.
+export function folderRole(folder: FolderInfo): string | null {
+  return folder.specialUse ?? SPECIAL_USE_FLAGS.find((flag) => folder.flags.has(flag)) ?? null;
+}
+
+// Only Proton's exclusive locations: each mail sits in exactly one. Labels, Starred and All Mail
+// are overlays that can still hold trashed mail and would mask deletions.
 export function selectKeptFolders(folders: readonly FolderInfo[]): string[] {
   return folders
     .filter((folder) => !folder.flags.has('\\Noselect') && !folder.flags.has('\\NonExistent'))
-    .filter((folder) => folder.specialUse !== '\\Trash' && folder.specialUse !== '\\All')
+    .filter((folder) => {
+      const role = folderRole(folder);
+
+      return (role != null && KEPT_ROLES.includes(role)) || folder.path.startsWith('Folders/');
+    })
     .map((folder) => folder.path);
 }
 

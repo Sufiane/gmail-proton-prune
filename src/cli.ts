@@ -2,7 +2,15 @@ import { createInterface } from 'node:readline/promises';
 import type { ImapFlow } from 'imapflow';
 import { readConfig } from './config.ts';
 import { exceedsRatio, findDeletedInProton, isConfirmed, selectKeptFolders } from './diff.ts';
-import { collectMessageIds, connect, fetchSummaries, findMailboxPath, listFolders, moveToTrash } from './mailbox.ts';
+import {
+  collectMessageIds,
+  connect,
+  countMessages,
+  fetchSummaries,
+  findMailboxPath,
+  listFolders,
+  moveToTrash,
+} from './mailbox.ts';
 import { printMails, writeCsv } from './report.ts';
 
 function buildGmailQuery(minAgeDays: number): string {
@@ -18,8 +26,18 @@ function buildGmailQuery(minAgeDays: number): string {
 async function loadProtonIds(proton: ImapFlow): Promise<Set<string>> {
   const keptFolders = selectKeptFolders(await listFolders(proton));
 
-  console.log(`Proton: reading ${keptFolders.length} folders (all except Trash and All Mail)…`);
-  const ids = await collectMessageIds(proton, keptFolders);
+  console.log(`Proton: reading ${keptFolders.length} folders (${keptFolders.join(', ')})…`);
+  const { ids, messageCount } = await collectMessageIds(proton, keptFolders);
+  const [trashCount, allMailCount] = await Promise.all([
+    findMailboxPath(proton, '\\Trash', 'Trash').then((path) => countMessages(proton, path)),
+    findMailboxPath(proton, '\\All', 'All Mail').then((path) => countMessages(proton, path)),
+  ]);
+
+  console.log(`Proton: ${messageCount} kept + ${trashCount} in Trash, All Mail holds ${allMailCount}`);
+
+  if (messageCount + trashCount !== allMailCount) {
+    throw new Error('proton_folder_mismatch');
+  }
 
   console.log(`Proton: ${ids.size} distinct kept Message-IDs`);
 

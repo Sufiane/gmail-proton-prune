@@ -1,6 +1,6 @@
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import type { ImapAccount } from './config.ts';
-import { normalizeMessageId, type FolderInfo, type MailSummary } from './diff.ts';
+import { folderRole, normalizeMessageId, type FolderInfo, type MailSummary } from './diff.ts';
 
 const MOVE_BATCH_SIZE = 500;
 
@@ -36,7 +36,7 @@ export async function listFolders(client: ImapFlow): Promise<FolderInfo[]> {
 export async function findMailboxPath(client: ImapFlow, specialUse: string, fallbackPath: string): Promise<string> {
   const mailboxes = await client.list();
   const match =
-    mailboxes.find((mailbox) => mailbox.specialUse === specialUse) ??
+    mailboxes.find((mailbox) => folderRole(mailbox) === specialUse) ??
     mailboxes.find((mailbox) => mailbox.path.toLowerCase() === fallbackPath.toLowerCase());
 
   if (match == null) {
@@ -106,13 +106,18 @@ export async function fetchSummaries(client: ImapFlow, path: string, gmailQuery?
   }
 }
 
-export async function collectMessageIds(client: ImapFlow, paths: readonly string[]): Promise<Set<string>> {
+export async function collectMessageIds(
+  client: ImapFlow,
+  paths: readonly string[],
+): Promise<{ ids: Set<string>; messageCount: number }> {
   const ids = new Set<string>();
+  let messageCount = 0;
 
   for (const path of paths) {
     const { mails } = await fetchSummaries(client, path);
 
     console.log(`  ${path}: ${mails.length}`);
+    messageCount += mails.length;
 
     for (const mail of mails) {
       if (mail.messageId != null) {
@@ -121,7 +126,17 @@ export async function collectMessageIds(client: ImapFlow, paths: readonly string
     }
   }
 
-  return ids;
+  return { ids, messageCount };
+}
+
+export async function countMessages(client: ImapFlow, path: string): Promise<number> {
+  const status = await client.status(path, { messages: true });
+
+  if (status === false || status.messages == null) {
+    throw new Error('mailbox_status_failed');
+  }
+
+  return status.messages;
 }
 
 export async function moveToTrash(

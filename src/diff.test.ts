@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   exceedsRatio,
   findDeletedInProton,
+  folderRole,
   isConfirmed,
   normalizeMessageId,
   selectKeptFolders,
@@ -44,20 +45,45 @@ function folder(path: string, specialUse?: string, flags: string[] = []): Folder
   return { path, specialUse, flags: new Set(flags) };
 }
 
+describe('folderRole', () => {
+  describe('when specialUse is set', () => {
+    it('returns it', () => {
+      assert.equal(folderRole(folder('INBOX', '\\Inbox')), '\\Inbox');
+    });
+  });
+
+  describe('when only the LIST flags carry the role', () => {
+    it('reads it from the flags', () => {
+      assert.equal(folderRole(folder('All Mail', undefined, ['\\All', '\\Marked'])), '\\All');
+    });
+  });
+
+  describe('when the folder has no role', () => {
+    it('returns null', () => {
+      assert.equal(folderRole(folder('Labels/Work', undefined, ['\\Marked'])), null);
+    });
+  });
+});
+
 describe('selectKeptFolders', () => {
-  describe('when Proton lists system, custom and container folders', () => {
+  describe('when Bridge lists its folders', () => {
     const folders = [
       folder('INBOX', '\\Inbox'),
-      folder('Spam', '\\Junk'),
-      folder('Trash', '\\Trash'),
-      folder('All Mail', '\\All'),
+      folder('Sent', '\\Sent', ['\\Sent']),
+      folder('Drafts', '\\Drafts', ['\\Drafts']),
+      folder('Archive', '\\Archive', ['\\Archive']),
+      folder('Spam', '\\Junk', ['\\Junk']),
+      folder('Trash', '\\Trash', ['\\Trash']),
+      folder('All Mail', undefined, ['\\All']),
+      folder('Starred', undefined, ['\\Flagged']),
       folder('Folders', undefined, ['\\Noselect']),
       folder('Folders/Bills'),
+      folder('Labels', undefined, ['\\Noselect']),
       folder('Labels/Work'),
     ];
 
-    it('keeps Inbox, Spam and custom folders', () => {
-      assert.deepEqual(selectKeptFolders(folders), ['INBOX', 'Spam', 'Folders/Bills', 'Labels/Work']);
+    it('keeps only the exclusive locations', () => {
+      assert.deepEqual(selectKeptFolders(folders), ['INBOX', 'Sent', 'Drafts', 'Archive', 'Spam', 'Folders/Bills']);
     });
   });
 });
